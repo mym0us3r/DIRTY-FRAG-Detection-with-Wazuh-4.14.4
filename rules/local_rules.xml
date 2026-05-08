@@ -1,0 +1,214 @@
+<!-- ============================================================ -->
+<!-- CVE-2026-43284 / CVE-2026-43500 - Dirty Frag                 -->
+<!-- Wazuh 4.14.4 Detection Rules                                  -->
+<!-- Ref: https://github.com/V4bel/dirtyfrag                      -->
+<!-- Author: Kislley Rodrigues                                     -->
+<!--                                                              -->
+<!-- Dirty Frag chains two page-cache write primitives:           -->
+<!--                                                              -->
+<!-- Variant 1 (CVE-2026-43284) - xfrm-ESP:                      -->
+<!--   unshare(NEWUSER|NEWNET) -> XFRM SA -> vmsplice -> splice  -->
+<!--   -> esp_input() in-place AEAD -> 4-byte STORE in page cache -->
+<!--   Requires: CLONE_NEWUSER (user namespace creation)          -->
+<!--   Modules: esp4.ko (present on most distros)                 -->
+<!--                                                              -->
+<!-- Variant 2 (CVE-2026-43500) - RxRPC:                         -->
+<!--   add_key("rxrpc") -> socket(AF_RXRPC) -> vmsplice -> splice -->
+<!--   -> rxkad_verify_packet_1() in-place fcrypt -> 8-byte STORE -->
+<!--   Requires: NO namespace privilege                            -->
+<!--   Modules: rxrpc.ko (Ubuntu default; most others: absent)   -->
+<!--                                                              -->
+<!-- CHAINING: When CLONE_NEWUSER is blocked (AppArmor Ubuntu),  -->
+<!-- the exploit falls back from ESP to RxRPC. A single binary   -->
+<!-- achieves root on all major distributions.                    -->
+<!--                                                              -->
+<!-- CRITICAL: The Copy Fail mitigation (blacklist algif_aead)   -->
+<!-- does NOT protect against Dirty Frag. Both use the same SINK -->
+<!-- (authencesn_decrypt seqno_lo write) but different triggers.  -->
+<!--                                                              -->
+<!-- Rule architecture:                                           -->
+<!-- 80700 (decoded_as=auditd)                                    -->
+<!--   200000 (key=dirty_frag_vmsplice)   [depth 1] level 10    -->
+<!--   200001 (key=dirty_frag_splice)     [depth 1] level 10    -->
+<!--     200007 CHAIN ESP (vmsplice+splice pid/120s) [d2] lv 15 -->
+<!--   200002 (key=dirty_frag_ns_escape)  [depth 1] level 12    -->
+<!--   200003 (key=dirty_frag_add_key)    [depth 1] level 8     -->
+<!--   200004 (key=dirty_frag_rxrpc_socket) [depth 1] level 10  -->
+<!--     200008 CHAIN RXRPC (rxrpc+splice pid/120s) [d2] lv 15  -->
+<!--   200005 (key=dirty_frag_modload)    [depth 1] level 12    -->
+<!--   200006 (key=dirty_frag_execve_su)  [depth 1] level 6     -->
+<!--                                                              -->
+<!-- uid!=0 covers: regular users, service accounts (www-data,   -->
+<!-- postgres, jenkins), containers, and web shells.             -->
+<!--                                                              -->
+<!-- NOTE: Rules 200000-200008 use dirty_frag_* auditd keys.    -->
+<!-- They can coexist safely with Copy Fail rules (copy_fail_*). -->
+<!-- ============================================================ -->
+
+<group name="audit,linux,lpe,dirty_frag,cve_2026_43284,">
+
+  <!-- ===========================================================
+       SIGNAL 1: vmsplice() by non-root process
+       Unique to Dirty Frag. The exploit uses vmsplice to plant the
+       crafted protocol header (ESP 24B or RxRPC 28B) into a pipe.
+       Copy Fail does not use vmsplice - this is a differentiator.
+       =========================================================== -->
+  <rule id="200000" level="10">
+    <if_sid>80700</if_sid>
+    <field name="audit.key">dirty_frag_vmsplice</field>
+    <description>CVE-2026-43284 (Dirty Frag): vmsplice() called by non-root process [$(audit.exe)] - protocol header plant into pipe</description>
+    <mitre>
+      <id>T1068</id>
+    </mitre>
+    <group>pci_dss_10.2.7,gdpr_IV_35.7.d,hipaa_164.312.b,nist_800_53_AU.14,tsc_CC7.2,</group>
+  </rule>
+
+  <!-- ===========================================================
+       SIGNAL 2: splice() by non-root process
+       Delivers target file (e.g. /usr/bin/su or /etc/passwd)
+       page cache pages into the pipe. Combined with vmsplice,
+       the pipe carries both the protocol header and the target
+       page - ready to be sent to the socket as a single skb.
+       =========================================================== -->
+  <rule id="200001" level="10">
+    <if_sid>80700</if_sid>
+    <field name="audit.key">dirty_frag_splice</field>
+    <description>CVE-2026-43284 (Dirty Frag): splice() called by non-root process [$(audit.exe)] - target file page cache plant</description>
+    <mitre>
+      <id>T1068</id>
+    </mitre>
+    <group>pci_dss_10.2.7,gdpr_IV_35.7.d,</group>
+  </rule>
+
+  <!-- ===========================================================
+       SIGNAL 3: unshare(CLONE_NEWUSER) by non-root
+       ESP variant prerequisite. XFRM SA registration requires
+       CAP_NET_ADMIN. The exploit gains it by creating a user/net
+       namespace via unshare(CLONE_NEWUSER|CLONE_NEWNET).
+       CLONE_NEWUSER bit (0x10000000) is checked in auditd a0 field.
+       NOTE: Legitimate container runtimes also use CLONE_NEWUSER.
+       Correlate with vmsplice/splice in the same timeframe.
+       =========================================================== -->
+  <rule id="200002" level="12">
+    <if_sid>80700</if_sid>
+    <field name="audit.key">dirty_frag_ns_escape</field>
+    <description>CVE-2026-43284 (Dirty Frag): unshare(CLONE_NEWUSER) by non-root [$(audit.exe)] - ESP variant namespace privilege escalation path</description>
+    <mitre>
+      <id>T1068</id>
+      <id>T1611</id>
+    </mitre>
+    <group>pci_dss_10.2.7,gdpr_IV_35.7.d,</group>
+  </rule>
+
+  <!-- ===========================================================
+       SIGNAL 4: add_key syscall by non-root
+       RxRPC variant: plants session_key K into the process keyring.
+       K controls the 8-byte STORE value via fcrypt_decrypt(C, K).
+       The exploit brute-forces K in userspace to produce target bytes.
+       add_key("rxrpc", ...) also auto-loads rxrpc.ko if not present.
+       No namespace privilege required for this variant.
+       =========================================================== -->
+  <rule id="200003" level="8">
+    <if_sid>80700</if_sid>
+    <field name="audit.key">dirty_frag_add_key</field>
+    <description>CVE-2026-43284 (Dirty Frag): add_key() called by non-root [$(audit.exe)] - possible RxRPC session key plant for page cache write</description>
+    <mitre>
+      <id>T1068</id>
+    </mitre>
+    <group>pci_dss_10.2.7,gdpr_IV_35.7.d,</group>
+  </rule>
+
+  <!-- ===========================================================
+       SIGNAL 5: socket(AF_RXRPC=35) by non-root
+       RxRPC variant. Opening AF_RXRPC socket auto-loads rxrpc.ko
+       (MODULE_ALIAS_NETPROTO(PF_RXRPC)). Combined with add_key
+       from the same process, this is a strong indicator.
+       Legitimate use of AF_RXRPC (AFS file system clients) is
+       extremely rare on web hosting and cloud environments.
+       =========================================================== -->
+  <rule id="200004" level="10">
+    <if_sid>80700</if_sid>
+    <field name="audit.key">dirty_frag_rxrpc_socket</field>
+    <description>CVE-2026-43284 (Dirty Frag): socket(AF_RXRPC) opened by non-root [$(audit.exe)] - RxRPC variant trigger path</description>
+    <mitre>
+      <id>T1068</id>
+    </mitre>
+    <group>pci_dss_10.2.7,gdpr_IV_35.7.d,hipaa_164.312.b,nist_800_53_AU.14,tsc_CC7.2,</group>
+  </rule>
+
+  <!-- ===========================================================
+       SIGNAL 6: esp4/esp6/rxrpc module load (kmod)
+       Catches explicit or triggered loading of the vulnerable
+       modules. While esp4/esp6 are loaded at boot on most distros,
+       an unexpected runtime load or the loading of rxrpc.ko
+       (absent on RHEL/CentOS/SUSE by default) is suspicious.
+       =========================================================== -->
+  <rule id="200005" level="12">
+    <if_sid>80700</if_sid>
+    <field name="audit.key">dirty_frag_modload</field>
+    <description>CVE-2026-43284 (Dirty Frag): kmod/modprobe execution - possible esp4/esp6/rxrpc module load [exe=$(audit.exe) comm=$(audit.command)]</description>
+    <mitre>
+      <id>T1068</id>
+    </mitre>
+  </rule>
+
+  <!-- ===========================================================
+       SIGNAL 7: /usr/bin/su execution
+       Default exploit target for the ESP variant. The attacker
+       replaces the first 192 bytes of /usr/bin/su page cache with
+       a root-shell ELF via 48 x 4-byte STORE operations. PAM flow
+       is bypassed entirely. A single execve("/usr/bin/su") yields
+       root shell from the modified page cache.
+       =========================================================== -->
+  <rule id="200006" level="6">
+    <if_sid>80700</if_sid>
+    <field name="audit.key">dirty_frag_execve_su</field>
+    <description>CVE-2026-43284 (Dirty Frag): /usr/bin/su executed - review parent process and timing relative to vmsplice/splice events [$(audit.exe)]</description>
+    <mitre>
+      <id>T1068</id>
+    </mitre>
+  </rule>
+
+  <!-- ===========================================================
+       CHAIN ESP (Variant 1): vmsplice + splice same pid / 120s
+       Fires when splice() follows vmsplice() from the SAME process
+       within 120 seconds. This is the core pipe-plant pattern of
+       the ESP exploit:
+         vmsplice(ESP_header) + splice(target_file) -> splice-to-socket
+       Both variants use this pattern. Covers all languages (C, Go,
+       Rust, recompiled variants) unlike rules anchored on Python.
+       Validated: the public PoC (exp.c) uses exactly this sequence.
+       =========================================================== -->
+  <rule id="200007" level="15" timeframe="120">
+    <if_sid>200001</if_sid>
+    <if_matched_sid>200000</if_matched_sid>
+    <same_field>audit.pid</same_field>
+    <description>CVE-2026-43284 (Dirty Frag) EXPLOIT CHAIN DETECTED: vmsplice() + splice() from same process [pid=$(audit.pid) exe=$(audit.exe)] - page cache write attempt - IMMEDIATE INVESTIGATION REQUIRED</description>
+    <mitre>
+      <id>T1068</id>
+    </mitre>
+    <group>pci_dss_10.2.7,gdpr_IV_35.7.d,hipaa_164.312.b,nist_800_53_AU.14,tsc_CC6.8,tsc_CC7.2,</group>
+  </rule>
+
+  <!-- ===========================================================
+       CHAIN RXRPC (Variant 2): AF_RXRPC socket + splice same pid
+       Fires when splice() follows socket(AF_RXRPC) from the SAME
+       process within 120 seconds. This is the core sequence of
+       the RxRPC exploit:
+         add_key("rxrpc") -> socket(AF_RXRPC) -> vmsplice + splice
+       AF_RXRPC sockets are essentially unused outside AFS clients.
+       AF_RXRPC + splice from a non-privileged process is highly
+       anomalous and should be treated as critical.
+       =========================================================== -->
+  <rule id="200008" level="15" timeframe="120">
+    <if_sid>200001</if_sid>
+    <if_matched_sid>200004</if_matched_sid>
+    <same_field>audit.pid</same_field>
+    <description>CVE-2026-43284 (Dirty Frag) RXRPC EXPLOIT CHAIN DETECTED: socket(AF_RXRPC) + splice() from same process [pid=$(audit.pid) exe=$(audit.exe)] - RxRPC page cache write - IMMEDIATE INVESTIGATION REQUIRED</description>
+    <mitre>
+      <id>T1068</id>
+    </mitre>
+    <group>pci_dss_10.2.7,gdpr_IV_35.7.d,hipaa_164.312.b,nist_800_53_AU.14,tsc_CC6.8,tsc_CC7.2,</group>
+  </rule>
+
+</group>
