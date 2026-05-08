@@ -466,6 +466,10 @@ Both rulesets can coexist safely on the same Wazuh manager. The auditd key names
 
 ---
 
+*Detection rules, auditd sensor configuration and SCA policy validated on Wazuh 4.14.4, Ubuntu 24.04.2 LTS (kernel 6.8.0-111-generic), agent wazuh5beta (Wazuh agent 4.14.5).*
+
+---
+
 ## Author
 
 **Kislley Rodrigues (m0us3r)**
@@ -481,4 +485,9 @@ Wazuh Ambassador | Detection Engineering | Blue Team
 
 ---
 
-*Detection rules, auditd sensor configuration and SCA policy validated on Wazuh 4.14.4, Ubuntu 24.04.2 LTS (kernel 6.8.0-111-generic), agent wazuh5beta (Wazuh agent 4.14.5).*
+## Wazuh
+
+This project was developed as part of the [Wazuh Ambassador Program](https://wazuh.com/ambassadors-program/?utm_source=ambassadors&utm_medium=referral&utm_campaign=ambassadors+program).
+
+Wazuh is a free, open source security platform that provides unified XDR and SIEM protection.
+Learn more at [wazuh.com](https://wazuh.com/?utm_source=ambassadors&utm_medium=referral&utm_campaign=ambassadors+program).
