@@ -1,0 +1,31 @@
+# OS
+.DS_Store
+Thumbs.db
+
+# Editors
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# Lab artifacts - never commit
+*.pcap
+*.log
+core
+*.core
+
+# Credentials / keys
+*.pem
+*.key
+*.crt
+*.p12
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+
+# Compiled binaries - PoC binaries stay out of the repo
+exp
+*.o
+*.out
