@@ -7,6 +7,7 @@
 [![status](https://img.shields.io/badge/status-production--validated-success)](https://github.com/mym0us3r/DIRTY-FRAG-Detection-with-Wazuh-4.14.4)
 [![mitre](https://img.shields.io/badge/MITRE-T1068-red)](https://attack.mitre.org/techniques/T1068/)
 [![cve](https://img.shields.io/badge/CVE-2026--43284-critical)](https://github.com/V4bel/dirtyfrag)
+[![cve](https://img.shields.io/badge/CVE-2026--43500-critical)](https://github.com/V4bel/dirtyfrag)
 
 ---
 
@@ -105,15 +106,29 @@ The page cache corruption is the core primitive in both variants. `vmsplice` pla
 
 ## Affected Systems
 
-| Distribution | Kernel | AppArmor userns | Variant active |
-| --- | --- | --- | --- |
-| Ubuntu 24.04.2 LTS | 6.8.0-111-generic | Restricted (default) | RxRPC |
-| Ubuntu 22.04 LTS | 5.15.x | Not restricted | ESP + RxRPC |
-| Debian 12 | 6.1.x | Not restricted | ESP + RxRPC |
-| RHEL 9 | 5.14.x | Not restricted | ESP + RxRPC |
-| Amazon Linux 2023 | 6.1.x | Not restricted | ESP + RxRPC |
+### Confirmed by @m0us3r - Wazuh 4.14.4 detection lab
 
-All Linux kernels since 2017 are affected. AppArmor `unprivileged_userns` restriction on Ubuntu 24.04+ blocks the ESP variant but the RxRPC variant bypasses it.
+| Distribution | Kernel | AppArmor userns | Variant active | Status |
+| --- | --- | --- | --- | --- |
+| Wazuh Server - Ubuntu 24.04.2 LTS | 6.8.0-111-generic | Restricted (default) | RxRPC | VULNERABLE |
+| Wazuh Beta 5 - Ubuntu 24.04.2 LTS | 6.8.0-111-generic | Restricted (default) | RxRPC | VULNERABLE |
+
+### Confirmed by author (github.com/V4bel/dirtyfrag)
+
+| Distribution | Kernel | AppArmor userns | Variant active | Reason |
+| --- | --- | --- | --- | --- |
+| Ubuntu 24.04.4 | 6.17.0-23-generic | Restricted (default) | RxRPC | AppArmor blocks ESP + ESP patched in kernel 6.17 |
+| RHEL 10.1 | 6.12.0-124.49.1.el10_1.x86_64 | Not restricted | ESP + RxRPC | No namespace restriction, kernel predates ESP patch |
+| openSUSE Tumbleweed | 7.0.2-1-default | Not restricted | ESP + RxRPC | No namespace restriction |
+| CentOS Stream 10 | 6.12.0-224.el10.x86_64 | Not restricted | ESP + RxRPC | No namespace restriction |
+| AlmaLinux 10 | 6.12.0-124.52.3.el10_1.x86_64 | Not restricted | ESP + RxRPC | No namespace restriction |
+| Fedora 44 | 6.19.14-300.fc44.x86_64 | Not restricted | ESP + RxRPC | No namespace restriction |
+
+All Linux kernels since 2017 are affected. AppArmor `unprivileged_userns` restriction on Ubuntu 24.04+ blocks the ESP variant but the RxRPC variant bypasses it entirely.
+
+> **CVE-2026-43284 (ESP):** in scope from commit `cac2661c53f3` (2017-01-17) up to `f4c50a4034e6` (2026-05-05) - **PATCHED in mainline**
+>
+> **CVE-2026-43500 (RxRPC):** in scope from commit `2dc334f1a63a` (2023-06-08) up to upstream - **NO PATCH EXISTS YET**
 
 ---
 
@@ -329,6 +344,19 @@ Expected SCA score (baseline system without sensor or auditd deployed): **50%** 
 ---
 
 ## Production Validation Evidence
+
+### Exploit execution - agent wazuh5beta (Ubuntu 24.04.2 LTS kernel 6.8.0-111-generic)
+
+```
+kr@wazuh5beta:~$ ./exp
+root@wazuh5beta:~# date ; uname -a ; id ; whoami
+Sat May 9 04:59:08 AM UTC 2026
+Linux wazuh5beta 6.8.0-111-generic #111-Ubuntu SMP PREEMPT_DYNAMIC Sat Apr 11 23:16:02 UTC 2026 x86_64
+uid=0(root) gid=0(root) groups=0(root)
+root
+```
+
+User `kr` (uid=1000) with no privileges executed the PoC binary and obtained root shell (uid=0). Wazuh captured and alerted in real time.
 
 ### Wazuh Dashboard Discover - rules firing on agent wazuh5beta (52 hits)
 
