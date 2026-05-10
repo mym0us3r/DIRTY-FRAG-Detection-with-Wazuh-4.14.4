@@ -494,7 +494,7 @@ Both rulesets can coexist safely on the same Wazuh manager. The auditd key names
 
 ---
 
-*Detection rules, auditd sensor configuration and SCA policy validated on Wazuh 4.14.4, Ubuntu 24.04.2 LTS (kernel 6.8.0-111-generic), agent wazuh5beta (Wazuh agent 4.14.5).*
+*Detection rules, auditd sensor configuration and SCA policy validated on Wazuh 4.14.4, Ubuntu 24.04.2 LTS (kernel 6.8.0-111-generic).*
 
 ---
 
