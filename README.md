@@ -106,12 +106,12 @@ The page cache corruption is the core primitive in both variants. `vmsplice` pla
 
 ## Affected Systems
 
-### Confirmed by @m0us3r - Wazuh 4.14.4 detection lab
+### Confirmed by @m0us3r - Ubuntu 24.04.2 LTS detection lab
 
-| Distribution | Kernel | AppArmor userns | Variant active | Status |
-| --- | --- | --- | --- | --- |
-| Wazuh Server - Ubuntu 24.04.2 LTS | 6.8.0-111-generic | Restricted (default) | RxRPC | VULNERABLE |
-| Wazuh Beta 5 - Ubuntu 24.04.2 LTS | 6.8.0-111-generic | Restricted (default) | RxRPC | VULNERABLE |
+| Distribution | Kernel | AppArmor userns | Variant active | Reason | Status |
+| --- | --- | --- | --- | --- | --- |
+| Wazuh Server - Ubuntu 24.04.2 LTS | 6.8.0-111-generic | Restricted (default) | RxRPC | AppArmor blocks ESP, rxrpc.ko loaded by default | VULNERABLE |
+| Wazuh Beta 5 - Ubuntu 24.04.2 LTS | 6.8.0-111-generic | Restricted (default) | RxRPC | AppArmor blocks ESP, rxrpc.ko loaded by default | VULNERABLE |
 
 ### Confirmed by author (github.com/V4bel/dirtyfrag)
 
