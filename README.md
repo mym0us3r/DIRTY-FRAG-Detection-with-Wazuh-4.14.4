@@ -147,9 +147,11 @@ DIRTY-FRAG-Detection-with-Wazuh-4.14.4/
 |   '- cve-dirty-frag.yml           # SCA policy - kernel-version independent
 |
 '- docs/
-    |- sca-overview.png             # SCA policy score 50% - 3 passed / 3 failed
-    |- sca-discover.png             # Wazuh Discover - SCA check results
-    '- discover-alerts.png          # Wazuh Discover - 52 hits - rules 200002/200005/200006
+    |- dirty_frag_dash_rules.png    # Wazuh Rules Management - 200000-200008 deployed and active
+    |- SCA.png                      # SCA policy score 50% - 3 passed / 3 failed
+    |- SCA-hits.png                 # Wazuh Discover - SCA check results across 3 scan cycles
+    |- discover-dirty-frag.png      # Wazuh Discover - 52 hits - initial validation run (May 8)
+    '- discover-dirty-frag_more.png # Wazuh Discover - 13 hits - chain rule 200007 level 15 (May 15)
 ```
 
 > **Note on local_rules.xml:** The rules are delivered in `local_rules.xml`, which is the standard Wazuh file for custom rules at `/var/ossec/etc/rules/local_rules.xml`. If you prefer to keep your detection rules organized by CVE, you can deploy the content as a standalone file (e.g. `cve-2026-43284_rules.xml`) in the same directory. Both approaches work equally.
@@ -198,6 +200,12 @@ Automated configuration checks via `sca/cve-dirty-frag.yml`. Runs every 12 hours
 | **200008** | 200001 + if_matched=200004 | CHAIN RXRPC: AF_RXRPC + splice same pid/120s | - | 2 | **15** |
 
 > **Engineering note:** The chain rules (200007/200008) fire when two signals from the same process arrive within 120 seconds. `vmsplice` followed by `splice` from the same pid is the core pipe-plant sequence of both variants. AF_RXRPC socket followed by `splice` from the same pid is specific to the RxRPC path. Both chains are validated via `wazuh-logtest` with 9/9 pass.
+
+### Wazuh Dashboard - Rules Deployed
+
+[![Wazuh rules 200000-200008](docs/dirty_frag_dash_rules.png)](docs/dirty_frag_dash_rules.png)
+
+*Rules 200000-200008 deployed and active. Compliance tags: PCI_DSS, HIPAA, GDPR, NIST_800_53, MITRE ATT&CK. Rules 200007 and 200008 reach level 15 (Critical) on correlated chain detection.*
 
 ---
 
@@ -358,7 +366,7 @@ root
 
 User `kr` (uid=1000) with no privileges executed the PoC binary and obtained root shell (uid=0). Wazuh captured and alerted in real time.
 
-### Wazuh Dashboard Discover - rules firing on agent wazuh5beta (52 hits)
+### Initial validation run - May 8, 2026 (52 hits)
 
 [![Discover alerts - 52 hits](docs/discover-dirty-frag.png)](docs/discover-dirty-frag.png)
 
@@ -367,6 +375,21 @@ User `kr` (uid=1000) with no privileges executed the PoC binary and obtained roo
 | 200002 | confirmed | unshare(CLONE_NEWUSER) - AppArmor AUDIT - ESP attempt captured |
 | 200005 | confirmed | kmod/modprobe execution - esp4/esp6/rxrpc module load |
 | 200006 | confirmed | execve /usr/bin/su - uid=kr euid=root - LPE confirmed |
+
+> **Context:** This run was executed before the complete auditd sensor rules were deployed. Rules 200002, 200005, and 200006 fired via baseline auditd coverage. The full chain rule (200007) requires the `cve-dirty-frag.rules` sensor file to be active - see the full validation run below.
+
+### Full validation run - chain rule 200007 firing (May 15, 2026)
+
+[![Discover alerts - 13 hits - chain rule 200007](docs/discover-dirty-frag_more.png)](docs/discover-dirty-frag_more.png)
+
+| Rule | Level | Key | Note |
+| --- | --- | --- | --- |
+| 200002 | 12 | dirty_frag_ns_escape | unshare(CLONE_NEWUSER) - ESP namespace escape |
+| 200003 | 8 | dirty_frag_add_key | add_key() - RxRPC session key plant |
+| 200000 | 10 | dirty_frag_vmsplice | vmsplice() - protocol header plant |
+| **200007** | **15** | dirty_frag_splice | **EXPLOIT CHAIN DETECTED: vmsplice + splice same pid/120s - IMMEDIATE INVESTIGATION REQUIRED** |
+
+Rule 200007 fired after deploying the complete auditd sensor rules (`cve-dirty-frag.rules`). The chain correlated `vmsplice()` + `splice()` from `pid=5670` (`exe=/home/kr/exp`) within the 120-second window. This is the highest-confidence signal in the detection set.
 
 ### SCA Policy - Score 50% (baseline without sensor deployed)
 
