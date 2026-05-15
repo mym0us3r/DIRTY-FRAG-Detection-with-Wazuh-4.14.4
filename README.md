@@ -531,7 +531,8 @@ Wazuh Ambassador | Detection Engineering | Blue Team
 ## Acknowledgments
 
 - **V4bel** for the discovery, public disclosure and PoC of CVE-2026-43284 / CVE-2026-43500 - https://github.com/V4bel/dirtyfrag
-- **Wazuh Team** for the open SIEM/XDR platform and Ambassador Program
+- **Wazuh Team** for the open SIEM/XDR platform
+- **Anthony Faruna and Katia Bukcovac** - Wazuh Ambassador Program, for the review and feedback on this detection deliverable
 - **CloudLinux** for the early mitigation reference at https://blog.cloudlinux.com/dirty-frag-mitigation-and-kernel-update
 
 ---
